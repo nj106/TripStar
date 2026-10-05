@@ -50,7 +50,7 @@ class DirectOpenAILLM:
         stream = kwargs.pop("stream", True)
         request_kwargs = {
             "model": kwargs.get("model", self.model),
-            "messages": messages,
+            "messages": self._sanitize_messages(messages),
             "temperature": kwargs.get("temperature", 0.7),
             "max_tokens": kwargs.get("max_tokens"),
             "top_p": kwargs.get("top_p"),
@@ -82,6 +82,33 @@ class DirectOpenAILLM:
         choice = response.choices[0]
         content = getattr(choice.message, "content", None) or ""
         return content
+
+    @staticmethod
+    def _sanitize_messages(messages):
+        """清洗消息列表。
+
+        Gemini 的 OpenAI 兼容接口不接受 content=null（OpenAI 原生接口容忍，
+        Gemini 直接 400 INVALID_ARGUMENT: 'Value is not a string: null'）。
+        智能体流程里带 tool_calls 的 assistant 消息 content 常为 null，
+        这里统一转为空字符串，其他字段原样保留。
+        """
+        cleaned = []
+        for m in messages:
+            if hasattr(m, "model_dump"):
+                try:
+                    m = m.model_dump(exclude_unset=True)
+                except Exception:
+                    cleaned.append(m)
+                    continue
+            elif isinstance(m, dict):
+                m = dict(m)
+            else:
+                cleaned.append(m)
+                continue
+            if m.get("content") is None:
+                m["content"] = ""
+            cleaned.append(m)
+        return cleaned
 
     def __call__(self, messages, **kwargs):
         return self.invoke(messages, **kwargs)
