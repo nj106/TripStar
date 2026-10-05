@@ -48,22 +48,17 @@ class DirectOpenAILLM:
     def invoke(self, messages, **kwargs):
         """兼容 HelloAgentsLLM 的核心接口，默认使用流式输出并拼接为纯文本。"""
         stream = kwargs.pop("stream", True)
+        # 注意: 不要把值为 None 的参数发出去。OpenAI SDK 会把 None 原样
+        # 序列化为 null，而 Gemini 的 OpenAI 兼容接口对 null 极其严格
+        # (如 stop=null 会直接 400: 'Value is not a string: null')。
         request_kwargs = {
             "model": kwargs.get("model", self.model),
             "messages": self._sanitize_messages(messages),
             "temperature": kwargs.get("temperature", 0.7),
-            "max_tokens": kwargs.get("max_tokens"),
-            "top_p": kwargs.get("top_p"),
-            "stop": kwargs.get("stop"),
         }
-
-        if kwargs.get("response_format") is not None:
-            request_kwargs["response_format"] = kwargs["response_format"]
-
-        if kwargs.get("tools") is not None:
-            request_kwargs["tools"] = kwargs["tools"]
-        if kwargs.get("tool_choice") is not None:
-            request_kwargs["tool_choice"] = kwargs["tool_choice"]
+        for key in ("max_tokens", "top_p", "stop", "response_format", "tools", "tool_choice"):
+            if kwargs.get(key) is not None:
+                request_kwargs[key] = kwargs[key]
 
         if stream:
             request_kwargs["stream"] = True
