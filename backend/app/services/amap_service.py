@@ -1,5 +1,7 @@
 """高德地图MCP服务封装"""
 
+import json
+import requests
 from typing import List, Dict, Any, Optional
 from hello_agents.tools import MCPTool
 from ..config import get_settings
@@ -78,17 +80,100 @@ class AmapService:
                 }
             })
             
-            # 解析结果
-            # 注意: MCP工具返回的是字符串,需要解析
-            # 这里简化处理,实际应该解析JSON
-            print(f"POI搜索结果: {result[:200]}...")  # 打印前200字符
-            
-            # TODO: 解析实际的POI数据
-            return []
-            
+            # 解析MCP返回结果为POIInfo列表
+            pois = self._parse_pois_result(result)
+            if pois:
+                print(f"✅ POI搜索成功(MCP解析): {len(pois)} 条")
+                return pois
+            print("⚠️ MCP结果解析为空，改用REST直调兜底")
+
+        except Exception as e:
+            print(f"⚠️ MCP调用异常，改用REST直调兜底: {str(e)}")
+
+        return self._search_poi_rest(keywords, city, citylimit)
+
+    def _parse_pois_result(self, result: Any) -> List[POIInfo]:
+        """解析MCP工具返回的POI数据，兼容字符串/字典多种形态。"""
+        data = result
+        if isinstance(data, str):
+            text = data.strip()
+            # 兼容 markdown 代码块包裹的 JSON
+            if text.startswith("```"):
+                text = text.strip("`").strip()
+                if text.lower().startswith("json"):
+                    text = text[4:].strip()
+            try:
+                data = json.loads(text)
+            except Exception:
+                print("⚠️ POI结果不是合法JSON，跳过解析")
+                return []
+        if isinstance(data, dict):
+            raw_pois = data.get("pois")
+            if isinstance(raw_pois, list):
+                pois: List[POIInfo] = []
+                for p in raw_pois:
+                    info = self._build_poi_info(p)
+                    if info is not None:
+                        pois.append(info)
+                return pois
+        return []
+
+    def _search_poi_rest(self, keywords: str, city: str, citylimit: bool = True) -> List[POIInfo]:
+        """REST直调兜底：直接请求高德 place/text 接口。"""
+        try:
+            settings = get_settings()
+            params = {
+                "key": settings.vite_amap_web_key,
+                "keywords": keywords,
+                "city": city,
+                "citylimit": "true" if citylimit else "false",
+                "output": "JSON",
+                "extensions": "base",
+            }
+            resp = requests.get("https://restapi.amap.com/v3/place/text", params=params, timeout=20)
+            data = resp.json()
+            if data.get("infocode") != "10000":
+                print(f"❌ 高德REST返回异常: {data.get('info')}({data.get('infocode')})")
+                return []
+            pois: List[POIInfo] = []
+            for p in data.get("pois", []) or []:
+                info = self._build_poi_info(p)
+                if info is not None:
+                    pois.append(info)
+            print(f"✅ POI搜索成功(REST直调): {len(pois)} 条")
+            return pois
         except Exception as e:
             print(f"❌ POI搜索失败: {str(e)}")
             return []
+
+    @staticmethod
+    def _build_poi_info(p: Any) -> Optional[POIInfo]:
+        """把单个POI字典转为POIInfo，缺经纬度则跳过该条。"""
+        if not isinstance(p, dict):
+            return None
+        try:
+            loc_raw = p.get("location")
+            location = None
+            if isinstance(loc_raw, str) and "," in loc_raw:
+                lng, lat = loc_raw.split(",", 1)
+                location = Location(longitude=float(lng), latitude=float(lat))
+            elif isinstance(loc_raw, dict):
+                lng = loc_raw.get("longitude", loc_raw.get("lng"))
+                lat = loc_raw.get("latitude", loc_raw.get("lat"))
+                if lng is not None and lat is not None:
+                    location = Location(longitude=float(lng), latitude=float(lat))
+            if location is None:
+                return None
+            return POIInfo(
+                id=str(p.get("id", "")),
+                name=str(p.get("name", "")),
+                type=str(p.get("type", "")),
+                address=str(p.get("address", "")),
+                location=location,
+                tel=(str(p.get("tel")) if p.get("tel") else None),
+            )
+        except (ValueError, TypeError):
+            return None
     
     def get_weather(self, city: str) -> List[WeatherInfo]:
         """
