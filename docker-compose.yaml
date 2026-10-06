@@ -7,6 +7,7 @@ services:
         VITE_AMAP_WEB_JS_KEY: ${VITE_AMAP_WEB_JS_KEY:-your_amap_web_js_api_key_here}
         VITE_AMAP_SECURITY_JS_CODE: ${VITE_AMAP_SECURITY_JS_CODE:-your_amap_security_js_code_here}
     container_name: helloagents-trip-planner
+    network_mode: bridge
     ports:
       - "7860:7860"
     environment:
