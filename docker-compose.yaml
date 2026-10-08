@@ -1,11 +1,8 @@
 services:
   trip-planner:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        VITE_AMAP_WEB_JS_KEY: ${VITE_AMAP_WEB_JS_KEY:-your_amap_web_js_api_key_here}
-        VITE_AMAP_SECURITY_JS_CODE: ${VITE_AMAP_SECURITY_JS_CODE:-your_amap_security_js_code_here}
+    # 镜像由 GitHub Action 自动构建并推送到 GHCR（.github/workflows/build-push.yml），
+    # Portainer 侧不再本地 build，watchtower 每天 02:00 自动拉取更新。
+    image: ghcr.io/nj106/tripstar:latest
     container_name: helloagents-trip-planner
     network_mode: bridge
     ports:
@@ -35,6 +32,8 @@ services:
     volumes:
       - trip_data:/app/backend/data
     restart: unless-stopped
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"
 
 volumes:
   trip_data:
